@@ -1,0 +1,223 @@
+// CallRecorder — menu-bar app: record system audio (other participants) + mic into one m4a,
+// then transcribe on-device. macOS 26+.
+//
+import Foundation
+import ScreenCaptureKit
+import AVFoundation
+import Speech
+import AppKit
+
+// recordings/ lives next to CallRecorder.app (i.e. inside this repo)
+let outDir = Bundle.main.bundleURL.deletingLastPathComponent().appendingPathComponent("recordings")
+
+func fail(_ msg: String) -> Never { FileHandle.standardError.write(Data((msg + "\n").utf8)); exit(1) }
+
+// MARK: - Transcription (on-device, SpeechAnalyzer)
+func transcribe(_ url: URL) async throws -> URL {
+    let locale = Locale(identifier: "en-US")
+    let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
+                                        reportingOptions: [], attributeOptions: [.audioTimeRange])
+    if let req = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+        print("Downloading speech model (one time)…")
+        try await req.downloadAndInstall()
+    }
+    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    let file = try AVAudioFile(forReading: url)
+    async let results: [(TimeInterval, String)] = {
+        var out: [(TimeInterval, String)] = []
+        for try await r in transcriber.results {
+            let start = r.text.runs.first?.audioTimeRange?.start.seconds ?? 0
+            out.append((start, String(r.text.characters)))
+        }
+        return out
+    }()
+    if let last = try await analyzer.analyzeSequence(from: file) {
+        try await analyzer.finalizeAndFinish(through: last)
+    } else {
+        await analyzer.cancelAndFinishNow()
+    }
+    var text = ""
+    for (t, s) in try await results {
+        let m = Int(t) / 60, sec = Int(t) % 60
+        text += String(format: "[%02d:%02d] %@\n", m, sec, s.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    let txt = url.deletingPathExtension().appendingPathExtension("txt")
+    try text.write(to: txt, atomically: true, encoding: .utf8)
+    return txt
+}
+
+// MARK: - Recording
+final class AudioFile {
+    let writer: AVAssetWriter, input: AVAssetWriterInput
+    var started = false
+    init(_ url: URL) throws {
+        writer = try AVAssetWriter(url: url, fileType: .m4a)
+        input = AVAssetWriterInput(mediaType: .audio, outputSettings: [
+            AVFormatIDKey: kAudioFormatMPEG4AAC, AVSampleRateKey: 48000,
+            AVNumberOfChannelsKey: 1, AVEncoderBitRateKey: 96000])
+        input.expectsMediaDataInRealTime = true
+        writer.add(input)
+    }
+    func append(_ sb: CMSampleBuffer) {
+        guard sb.isValid, CMSampleBufferGetNumSamples(sb) > 0 else { return }
+        if !started {
+            writer.startWriting()
+            writer.startSession(atSourceTime: sb.presentationTimeStamp)
+            started = true
+        }
+        if input.isReadyForMoreMediaData { input.append(sb) }
+    }
+    func finish() async {
+        guard started else { return }
+        input.markAsFinished()
+        await writer.finishWriting()
+    }
+}
+
+final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate {
+    let sys: AudioFile, mic: AudioFile
+    let queue = DispatchQueue(label: "callrec.samples")
+    var stream: SCStream?
+    init(sys: AudioFile, mic: AudioFile) { self.sys = sys; self.mic = mic }
+
+    func start() async throws {
+        let content = try await SCShareableContent.current
+        guard let display = content.displays.first else { throw NSError(domain: "callrec", code: 1, userInfo: [NSLocalizedDescriptionKey: "No display found"]) }
+        let cfg = SCStreamConfiguration()
+        cfg.capturesAudio = true
+        cfg.captureMicrophone = true
+        cfg.excludesCurrentProcessAudio = true
+        cfg.sampleRate = 48000
+        cfg.channelCount = 1
+        cfg.width = 2; cfg.height = 2   // we only want audio
+        cfg.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        let s = SCStream(filter: filter, configuration: cfg, delegate: self)
+        try s.addStreamOutput(self, type: .screen, sampleHandlerQueue: queue)
+        try s.addStreamOutput(self, type: .audio, sampleHandlerQueue: queue)
+        try s.addStreamOutput(self, type: .microphone, sampleHandlerQueue: queue)
+        try await s.startCapture()
+        stream = s
+    }
+    func stop() async {
+        try? await stream?.stopCapture()
+        await withCheckedContinuation { c in queue.async { c.resume() } }
+        await sys.finish(); await mic.finish()
+    }
+    func stream(_ s: SCStream, didOutputSampleBuffer sb: CMSampleBuffer, of type: SCStreamOutputType) {
+        switch type {
+        case .audio: sys.append(sb)
+        case .microphone: mic.append(sb)
+        default: break
+        }
+    }
+    func stream(_ s: SCStream, didStopWithError error: Error) { print("Stream stopped: \(error)") }
+}
+
+func mix(_ a: URL, _ b: URL, to out: URL) async throws {
+    let comp = AVMutableComposition()
+    for u in [a, b] {
+        let asset = AVURLAsset(url: u)
+        guard let src = try await asset.loadTracks(withMediaType: .audio).first,
+              let t = comp.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+        else { continue }
+        try t.insertTimeRange(CMTimeRange(start: .zero, duration: try await asset.load(.duration)), of: src, at: .zero)
+    }
+    guard let ex = AVAssetExportSession(asset: comp, presetName: AVAssetExportPresetAppleM4A) else { throw NSError(domain: "callrec", code: 2, userInfo: [NSLocalizedDescriptionKey: "Export failed"]) }
+    try await ex.export(to: out, as: .m4a)
+}
+
+// MARK: - Menu-bar app
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    let status = NSMenuItem(title: "Idle", action: nil, keyEquivalent: "")
+    let startItem = NSMenuItem(title: "Start Recording", action: #selector(start), keyEquivalent: "s")
+    let stopItem = NSMenuItem(title: "Stop Recording", action: #selector(stop), keyEquivalent: "x")
+    var rec: Recorder?
+    var urls: (sys: URL, mic: URL, final: URL)?
+    var busy = false
+
+    func applicationDidFinishLaunching(_ n: Notification) {
+        let menu = NSMenu()
+        status.isEnabled = false
+        for i in [status, .separator(), startItem, stopItem, .separator()] { menu.addItem(i) }
+        menu.addItem(NSMenuItem(title: "Open Recordings Folder", action: #selector(openFolder), keyEquivalent: "o"))
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
+        menu.items.forEach { $0.target = self }
+        item.menu = menu
+        render()
+    }
+
+    func render(_ text: String? = nil) {
+        let recording = rec != nil
+        item.button?.image = NSImage(systemSymbolName: recording ? "record.circle.fill" : "record.circle",
+                                     accessibilityDescription: "Call Recorder")
+        item.button?.contentTintColor = recording ? .systemRed : nil
+        startItem.isEnabled = !recording && !busy
+        stopItem.isEnabled = recording
+        status.title = text ?? (recording ? "Recording…" : "Idle")
+    }
+
+    func alert(_ msg: String) {
+        let a = NSAlert(); a.messageText = "Call Recorder"; a.informativeText = msg
+        NSApp.activate(ignoringOtherApps: true); a.runModal()
+    }
+
+    @objc func start() {
+        do { try FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true) }
+        catch { alert("Can't create \(outDir.path): \(error)"); return }
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let base = "call_" + f.string(from: Date())
+        let u = (sys: outDir.appendingPathComponent(base + ".system.tmp.m4a"),
+                 mic: outDir.appendingPathComponent(base + ".mic.tmp.m4a"),
+                 final: outDir.appendingPathComponent(base + ".m4a"))
+        busy = true; render("Starting…")
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let r = Recorder(sys: try AudioFile(u.sys), mic: try AudioFile(u.mic))
+                try await r.start()
+                rec = r; urls = u
+            } catch {
+                alert("Could not start recording: \(error.localizedDescription)\n\nGrant Screen & System Audio Recording and Microphone permission to Call Recorder in System Settings → Privacy & Security, then try again.")
+            }
+            render()
+        }
+    }
+
+    @objc func stop() { Task { @MainActor in await finish(transcribeAfter: true) } }
+
+    @MainActor func finish(transcribeAfter: Bool) async {
+        guard let r = rec, let u = urls else { return }
+        rec = nil; busy = true; render("Saving…")
+        await r.stop()
+        do {
+            try await mix(u.sys, u.mic, to: u.final)
+            try? FileManager.default.removeItem(at: u.sys)
+            try? FileManager.default.removeItem(at: u.mic)
+        } catch { alert("Saving failed: \(error.localizedDescription)"); busy = false; render(); return }
+        if transcribeAfter {
+            render("Transcribing…")
+            do { _ = try await transcribe(u.final) }
+            catch { alert("Transcription failed (\(error.localizedDescription)). The recording is saved.") }
+        }
+        busy = false; render("Saved \(u.final.lastPathComponent)")
+        NSWorkspace.shared.activateFileViewerSelecting([u.final])
+    }
+
+    @objc func openFolder() {
+        try? FileManager.default.createDirectory(at: outDir, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(outDir)
+    }
+
+    @objc func quit() {
+        guard rec != nil else { NSApp.terminate(nil); return }
+        Task { @MainActor in await finish(transcribeAfter: false); NSApp.terminate(nil) }
+    }
+}
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()
