@@ -12,6 +12,12 @@ with a local open-source LLM. No bot joins your call, no account, no API key, no
 An open-source, self-hosted alternative to cloud note-takers like Otter.ai, Fireflies, Fathom and Granola
 for people who want their meeting audio to stay on their own machine.
 
+<p align="center">
+  <video src="docs/demo.mp4" controls muted width="720">
+    Your viewer can't play the video — <a href="docs/demo.mp4">watch the demo (mp4)</a>.
+  </video>
+</p>
+
 ## Features
 
 - **Records any app** — captures system audio (other participants) + your microphone via ScreenCaptureKit, mixed into one `.m4a`. It records the Mac, it doesn't join the meeting.
