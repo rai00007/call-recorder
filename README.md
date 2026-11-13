@@ -35,7 +35,7 @@ On the first recording macOS asks for permissions. If it doesn't, or you denied 
 - **Screen & System Audio Recording** (needed to capture the other side of the call)
 - **Microphone**
 
-Rebuilding changes the app's signature, so macOS may ask for these again after `./build.sh`.
+`build.sh` signs with your first code-signing identity (or `CODESIGN_IDENTITY`) so permissions survive rebuilds; with only an ad-hoc signature macOS silently invalidates them on every build.
 
 ## Output
 

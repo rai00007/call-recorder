@@ -3,7 +3,9 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 APP=CallRecorder.app
-rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS"
+# Build in a temp dir: synced folders (e.g. iCloud Desktop) re-add xattrs that break codesign.
+STAGE="$(mktemp -d)"; DEST="$PWD/$APP"; APP="$STAGE/$APP"
+mkdir -p "$APP/Contents/MacOS"
 swiftc -O main.swift -o "$APP/Contents/MacOS/CallRecorder"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -21,5 +23,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict></plist>
 PLIST
 xattr -cr "$APP"
-codesign --force --sign - "$APP"
-echo "Built $APP — run: open $APP"
+# Sign with a stable identity if one exists, so macOS privacy grants (screen/mic) survive rebuilds.
+# Ad-hoc signatures change on every build, which silently invalidates the grants.
+ID="${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk '/[0-9A-F]{40}/ {print $2; exit}')}"
+if [[ -n "$ID" ]]; then codesign --force --sign "$ID" "$APP"; echo "Signed with $ID"
+else codesign --force --sign - "$APP"; echo "Ad-hoc signed: re-grant permissions after each rebuild"; fi
+rm -rf "$DEST"; ditto --norsrc --noextattr "$APP" "$DEST"; rm -rf "$STAGE"
+codesign --verify --deep --strict "$DEST" && echo "Built $DEST — run: open CallRecorder.app"
