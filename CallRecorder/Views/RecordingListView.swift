@@ -20,13 +20,16 @@ struct RecordingListView: View {
                 }.font(.caption).foregroundStyle(.secondary)
             }
             .tag(m.id)
-            .contentShape(Rectangle())
-            .onTapGesture(count: 2) { state.openRecordingWindow(m.id) }
-            .contextMenu {
-                Button("Open in New Window") { state.openRecordingWindow(m.id) }
-                Button("Rename…") { renaming = m.id; newTitle = m.title }
-                Button("Delete…", role: .destructive) { deleting = state.selection.contains(m.id) ? state.selection : [m.id] }
+        }
+        // Native double-click + right-click handling; unlike a per-row tap gesture it doesn't interfere with single-click selection.
+        .contextMenu(forSelectionType: UUID.self) { ids in
+            if let id = ids.first, ids.count == 1 {
+                Button("Open in New Window") { state.openRecordingWindow(id) }
+                Button("Rename…") { renaming = id; newTitle = state.store.meta(id)?.title ?? "" }
             }
+            if !ids.isEmpty { Button("Delete…", role: .destructive) { deleting = ids } }
+        } primaryAction: { ids in
+            if let id = ids.first { state.openRecordingWindow(id) }
         }
         .searchable(text: $state.searchText, prompt: "Search titles and transcripts")
         .overlay { if items.isEmpty { Text(state.searchText.isEmpty ? "No recordings yet" : "No matches").foregroundStyle(.secondary) } }

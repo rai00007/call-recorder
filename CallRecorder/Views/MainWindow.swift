@@ -7,17 +7,19 @@ struct MainWindow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            RecordingBar()
-            Divider()
             NavigationSplitView {
                 RecordingListView(showStorage: $showStorage)
                     .navigationSplitViewColumnWidth(min: 260, ideal: 320)
             } detail: {
-                if state.selection.count == 1, let id = state.selection.first {
-                    RecordingDetailView(id: id).id(id)
-                } else {
-                    Text(state.selection.count > 1 ? "\(state.selection.count) recordings selected" : "Select a recording")
-                        .foregroundStyle(.secondary)
+                VStack(spacing: 0) {
+                    RecordingBar()
+                    Divider()
+                    if state.selection.count == 1, let id = state.selection.first {
+                        RecordingDetailView(id: id).id(id)
+                    } else {
+                        Text(state.selection.count > 1 ? "\(state.selection.count) recordings selected" : "Select a recording")
+                            .foregroundStyle(.secondary).frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
             }
         }
