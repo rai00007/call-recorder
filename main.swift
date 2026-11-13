@@ -97,7 +97,10 @@ You are a meticulous executive secretary writing minutes of a meeting from a tra
 Lines are labelled "Me" (the person who recorded the meeting) or "Others" (all other participants, \
 not distinguished from each other). The transcript is automatic speech recognition, so expect errors.
 Rules: use only information in the transcript. Never invent names, owners, dates or decisions; \
-write "not stated" when something is unknown. Attribute an action item to "Me" only if Me clearly \
+write "not stated" when something is unknown. \
+Every point must be traceable to words actually spoken in the transcript; if you cannot point to the line, leave it out. \
+If the transcript is casual chatter, a fragment, or has no real meeting content, write "No substantive meeting content." \
+under Summary and "None stated" under every other section. Never pad the minutes with plausible-sounding topics. Attribute an action item to "Me" only if Me clearly \
 took it on, otherwise to "Others" or "Unassigned". Be concise and factual.
 """
 
@@ -127,7 +130,7 @@ func chat(_ system: String, _ user: String, ctx: Int) async throws -> String {
     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
     req.httpBody = try JSONSerialization.data(withJSONObject: [
         "model": minutesModel, "stream": false,
-        "options": ["num_ctx": ctx, "temperature": 0.2],
+        "options": ["num_ctx": ctx, "temperature": 0],
         "messages": [["role": "system", "content": system], ["role": "user", "content": user]],
     ] as [String: Any])
     let (data, resp) = try await URLSession.shared.data(for: req)
@@ -154,6 +157,12 @@ func checkOllama() async throws {
 }
 
 func summarize(transcript: String, to out: URL) async throws {
+    let header = "# Meeting minutes — \(out.deletingPathExtension().deletingPathExtension().lastPathComponent)\n\n"
+    // Tiny transcripts give a small model nothing to work with and it invents content, so don't ask it.
+    if transcript.split(whereSeparator: \.isWhitespace).count < 120 {
+        try (header + "Transcript too short to summarize (under 120 words) — see the .txt.\n").write(to: out, atomically: true, encoding: .utf8)
+        return
+    }
     try await checkOllama()
     let lines = transcript.split(separator: "\n").map(String.init)
     let wordCount = { (s: String) in s.split(whereSeparator: \.isWhitespace).count }
@@ -178,7 +187,6 @@ func summarize(transcript: String, to out: URL) async throws {
             "Here are condensed notes from consecutive parts of one meeting:\n\n\(notes.joined(separator: "\n\n"))\n\n"
             + "Merge duplicates and write the final minutes.\n\n\(minutesTemplate)", ctx: 12288)
     }
-    let header = "# Meeting minutes — \(out.deletingPathExtension().deletingPathExtension().lastPathComponent)\n\n"
     try (header + minutes + "\n").write(to: out, atomically: true, encoding: .utf8)
 }
 
