@@ -7,6 +7,8 @@ summary and action items.
 - Records **system audio** (the other participants) + **your microphone**, mixed into one `.m4a`
 - Works with any app — it captures audio from the Mac, it doesn't join the meeting
 - Transcribes locally with macOS's built-in speech model (no API key, nothing uploaded)
+- Labels the transcript **Me** (your mic) vs **Others** (system audio)
+- Writes meeting minutes (summary, discussion points, decisions, action items) with a local LLM via [Ollama](https://ollama.com)
 - Saves to `recordings/` inside this repo
 
 Requires macOS 26 and Xcode command line tools (`swiftc`).
@@ -37,12 +39,20 @@ On the first recording macOS asks for permissions. If it doesn't, or you denied 
 
 `build.sh` signs with your first code-signing identity (or `CODESIGN_IDENTITY`) so permissions survive rebuilds; with only an ad-hoc signature macOS silently invalidates them on every build.
 
+### Meeting minutes (optional)
+
+Install Ollama from ollama.com, start it, then `ollama pull qwen2.5:3b`. After you stop a recording the app
+writes `.minutes.md` next to the transcript. If Ollama isn't running you still get the audio and transcript.
+Set `CALLREC_MODEL` to use another model (e.g. `qwen2.5:7b` on Apple Silicon / 16 GB+). On Intel Macs
+stick to ~3-4B models; an hour-long meeting takes a few minutes to summarize.
+
 ## Output
 
 ```
 recordings/
   call_2026-11-12_14-30-00.m4a   # the audio — upload this to ChatGPT
-  call_2026-11-12_14-30-00.txt   # transcript with [mm:ss] timestamps
+  call_2026-11-12_14-30-00.txt   # transcript: [mm:ss] Me:/Others: ...
+  call_2026-11-12_14-30-00.minutes.md  # minutes (needs Ollama)
 ```
 
 If transcription fails, the `.m4a` is still saved.
@@ -58,6 +68,7 @@ Upload the `.txt` (or the `.m4a`) and prompt something like:
 
 - Transcript language is English (US); change `Locale(identifier: "en-US")` in `main.swift`.
 - The first transcription downloads the speech model once. If `SpeechTranscriber` isn't available on your Mac, it falls back to `DictationTranscriber`.
+- Use headphones: with speakers, your mic also hears "Others", so their lines appear twice (as Me too).
 - Tell participants you're recording — some places legally require everyone's consent.
 - `recordings/` and the built app are git-ignored.
 
