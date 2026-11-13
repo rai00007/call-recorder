@@ -5,8 +5,9 @@ cd "$(dirname "$0")"
 APP=CallRecorder.app
 # Build in a temp dir: synced folders (e.g. iCloud Desktop) re-add xattrs that break codesign.
 STAGE="$(mktemp -d)"; DEST="$PWD/$APP"; APP="$STAGE/$APP"
-mkdir -p "$APP/Contents/MacOS"
-swiftc -O main.swift -o "$APP/Contents/MacOS/CallRecorder"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+swiftc -O -parse-as-library -swift-version 5 $(find CallRecorder -name '*.swift') -o "$APP/Contents/MacOS/CallRecorder"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -15,11 +16,13 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>Call Recorder</string>
   <key>CFBundleIdentifier</key><string>local.callrecorder</string>
   <key>CFBundleExecutable</key><string>CallRecorder</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleVersion</key><string>1</string>
   <key>LSMinimumSystemVersion</key><string>26.0</string>
-  <key>LSUIElement</key><true/>
+  <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key><string>Records your side of the call.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Transcribes your recordings on this Mac.</string>
 </dict></plist>
 PLIST
 xattr -cr "$APP"
