@@ -57,7 +57,7 @@ Upload the `.txt` (or the `.m4a`) and prompt something like:
 ## Notes
 
 - Transcript language is English (US); change `Locale(identifier: "en-US")` in `main.swift`.
-- The first transcription downloads the speech model once.
+- The first transcription downloads the speech model once. If `SpeechTranscriber` isn't available on your Mac, it falls back to `DictationTranscriber`.
 - Tell participants you're recording — some places legally require everyone's consent.
 - `recordings/` and the built app are git-ignored.
 

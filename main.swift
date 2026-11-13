@@ -15,22 +15,41 @@ func fail(_ msg: String) -> Never { FileHandle.standardError.write(Data((msg + "
 // MARK: - Transcription (on-device, SpeechAnalyzer)
 func transcribe(_ url: URL) async throws -> URL {
     let locale = Locale(identifier: "en-US")
-    let transcriber = SpeechTranscriber(locale: locale, transcriptionOptions: [],
-                                        reportingOptions: [], attributeOptions: [.audioTimeRange])
-    if let req = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
+    // SpeechTranscriber isn't offered on every Mac (isAvailable == false, no supported locales);
+    // DictationTranscriber works there, so fall back to it.
+    let module: any SpeechModule
+    let collect: @Sendable () async throws -> [(TimeInterval, String)]
+    if SpeechTranscriber.isAvailable,
+       await SpeechTranscriber.supportedLocales.contains(where: { $0.identifier(.bcp47) == locale.identifier(.bcp47) }) {
+        let t = SpeechTranscriber(locale: locale, transcriptionOptions: [],
+                                  reportingOptions: [], attributeOptions: [.audioTimeRange])
+        module = t
+        collect = {
+            var out: [(TimeInterval, String)] = []
+            for try await r in t.results {
+                out.append((r.text.runs.first?.audioTimeRange?.start.seconds ?? 0, String(r.text.characters)))
+            }
+            return out
+        }
+    } else {
+        let t = DictationTranscriber(locale: locale, contentHints: [], transcriptionOptions: [],
+                                     reportingOptions: [], attributeOptions: [.audioTimeRange])
+        module = t
+        collect = {
+            var out: [(TimeInterval, String)] = []
+            for try await r in t.results {
+                out.append((r.text.runs.first?.audioTimeRange?.start.seconds ?? 0, String(r.text.characters)))
+            }
+            return out
+        }
+    }
+    if let req = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
         print("Downloading speech model (one time)…")
         try await req.downloadAndInstall()
     }
-    let analyzer = SpeechAnalyzer(modules: [transcriber])
+    let analyzer = SpeechAnalyzer(modules: [module])
     let file = try AVAudioFile(forReading: url)
-    async let results: [(TimeInterval, String)] = {
-        var out: [(TimeInterval, String)] = []
-        for try await r in transcriber.results {
-            let start = r.text.runs.first?.audioTimeRange?.start.seconds ?? 0
-            out.append((start, String(r.text.characters)))
-        }
-        return out
-    }()
+    async let results = collect()
     if let last = try await analyzer.analyzeSequence(from: file) {
         try await analyzer.finalizeAndFinish(through: last)
     } else {
