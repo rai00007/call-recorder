@@ -7,11 +7,16 @@ protocol CaptureSession: AnyObject {
     var micActive: Bool { get }
     var systemActive: Bool { get }
     var droppedBuffers: Int { get }
+    /// Recent input level 0...1 (best effort, for the level meter only).
+    var level: Float { get }
     func start() async throws
     func stop() async
 }
 
+extension CaptureSession { var level: Float { 0 } }
+
 final class AudioFile {
+    private(set) var level: Float = 0
     let writer: AVAssetWriter, input: AVAssetWriterInput
     private(set) var started = false
     private(set) var dropped = 0
@@ -25,12 +30,27 @@ final class AudioFile {
     }
     func append(_ sb: CMSampleBuffer) {
         guard sb.isValid, CMSampleBufferGetNumSamples(sb) > 0 else { return }
+        level = Self.rms(sb)
         if !started {
             writer.startWriting()
             writer.startSession(atSourceTime: sb.presentationTimeStamp)
             started = true
         }
         if input.isReadyForMoreMediaData { input.append(sb) } else { dropped += 1 }
+    }
+    static func rms(_ sb: CMSampleBuffer) -> Float {
+        var out: Float = 0
+        try? sb.withAudioBufferList { list, _ in
+            var sum: Float = 0, n = 0
+            for b in list {
+                guard let p = b.mData?.assumingMemoryBound(to: Float.self) else { continue }
+                let c = Int(b.mDataByteSize) / MemoryLayout<Float>.size
+                for i in 0..<c { sum += p[i] * p[i] }
+                n += c
+            }
+            if n > 0 { out = min(1, sqrt(sum / Float(n)) * 4) }
+        }
+        return out
     }
     func finish() async {
         guard started else { return }
@@ -48,6 +68,7 @@ final class Recorder: NSObject, SCStreamOutput, SCStreamDelegate, CaptureSession
     var micActive: Bool { mic.started }
     var systemActive: Bool { sys.started }
     var droppedBuffers: Int { sys.dropped + mic.dropped }
+    var level: Float { max(sys.level, mic.level) }
 
     init(sys: URL, mic: URL) throws { self.sys = try AudioFile(sys); self.mic = try AudioFile(mic) }
 

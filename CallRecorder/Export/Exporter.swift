@@ -17,5 +17,7 @@ import Foundation
         return out
     }
 
+    static func notes(title: String, text: String) -> String { "# Notes — \(title)\n\n" + text + "\n" }
+
     static func write(_ text: String, to url: URL) throws { try text.write(to: url, atomically: true, encoding: .utf8) }
 }

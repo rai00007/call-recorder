@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping! The app lives in `CallRecorder/` (SwiftUI + AppKit); keep it dependency-free and simple. Non-UI logic goes in files that don't import SwiftUI so `swift test` can cover it (`App/`, `Views/`, `MenuBar/` are excluded from the test package).
+Thanks for helping! The app lives in `CallRecorder/` (SwiftUI + AppKit); keep it dependency-free and simple. Non-UI logic goes in files that don't import SwiftUI so `swift test` can cover it (`App/`, `Views/`, `MenuBar/`, `Prompts/` are excluded from the test package; calendar logic lives in `Calendar/` behind `CalendarProviding` so it can be tested with fakes).
 
 1. Fork and clone, then `./build.sh && open CallRecorder.app` (macOS 26+, Xcode command line tools).
 2. Run `swift test`. Make focused changes; describe what you tested (record a short call, check the transcript and minutes in the app).

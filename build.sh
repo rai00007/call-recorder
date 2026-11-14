@@ -6,7 +6,7 @@ APP=CallRecorder.app
 # Build in a temp dir: synced folders (e.g. iCloud Desktop) re-add xattrs that break codesign.
 STAGE="$(mktemp -d)"; DEST="$PWD/$APP"; APP="$STAGE/$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp Resources/AppIcon.icns Resources/optara-logo.png "$APP/Contents/Resources/"
 swiftc -O -parse-as-library -swift-version 5 $(find CallRecorder -name '*.swift') -o "$APP/Contents/MacOS/CallRecorder"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -22,6 +22,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>LSMinimumSystemVersion</key><string>26.0</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
   <key>NSMicrophoneUsageDescription</key><string>Records your side of the call.</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Reads your calendar events (title, time, attendees, join link) to remind you before meetings. Read-only; nothing leaves this Mac.</string>
+  <key>NSCalendarsUsageDescription</key><string>Reads your calendar events to remind you before meetings. Read-only; nothing leaves this Mac.</string>
   <key>NSSpeechRecognitionUsageDescription</key><string>Transcribes your recordings on this Mac.</string>
 </dict></plist>
 PLIST

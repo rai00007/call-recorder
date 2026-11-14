@@ -4,7 +4,7 @@ import AVFoundation
 enum RecFile: String {
     case audio = "audio.m4a", system = "system.m4a", mic = "mic.m4a"
     case transcript = "transcript.txt", edited = "transcript.edited.txt"
-    case minutes = "minutes.md", meta = "metadata.json"
+    case minutes = "minutes.md", meta = "metadata.json", notes = "notes.md"
 }
 
 enum RawCleanupFilter {
@@ -26,6 +26,11 @@ final class RecordingStore: ObservableObject {
     func setRoot(_ url: URL) { root = url; load() }
     func folder(_ id: UUID) -> URL { root.appendingPathComponent(id.uuidString) }
     func url(_ id: UUID, _ f: RecFile) -> URL { folder(id).appendingPathComponent(f.rawValue) }
+    /// Notes of a meeting-linked recording are shared with the meeting; standalone recordings keep their own notes.md.
+    func notesURL(_ id: UUID) -> URL {
+        if let mid = meta(id)?.meeting?.meetingId { return MeetingStore.folder(root: root, mid).appendingPathComponent(RecFile.notes.rawValue) }
+        return url(id, .notes)
+    }
     func exists(_ id: UUID, _ f: RecFile) -> Bool { fm.fileExists(atPath: url(id, f).path) }
     func meta(_ id: UUID) -> RecordingMetadata? { recordings.first { $0.id == id } }
     func size(_ id: UUID, _ f: RecFile) -> Int64 {
@@ -56,9 +61,11 @@ final class RecordingStore: ObservableObject {
     }
 
     @discardableResult
-    func create(title: String? = nil, language: String? = nil, createdAt: Date = Date(), legacySource: String? = nil) throws -> RecordingMetadata {
-        var m = RecordingMetadata(id: UUID(), title: title ?? Self.defaultTitle(createdAt), createdAt: createdAt)
-        m.language = language; m.legacySource = legacySource
+    func create(title: String? = nil, language: String? = nil, createdAt: Date = Date(), legacySource: String? = nil, meeting: MeetingLink? = nil) throws -> RecordingMetadata {
+        let meetingTitle = meeting?.snapshot.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let initial = title ?? (meetingTitle?.isEmpty == false ? meetingTitle : nil) ?? Self.defaultTitle(createdAt)
+        var m = RecordingMetadata(id: UUID(), title: initial, createdAt: createdAt)
+        m.language = language; m.legacySource = legacySource; m.meeting = meeting
         try fm.createDirectory(at: folder(m.id), withIntermediateDirectories: true)
         try save(m)
         return m

@@ -34,6 +34,7 @@ struct RecordingMetadata: Codable, Identifiable, Equatable {
     var legacySource: String?
     var actionItems: [ActionItem] = []
     var actionItemsEdited = false
+    var meeting: MeetingLink?   // optional so metadata written before calendar linking still decodes
 
     var statusLabel: String {
         if phase == .recording { return "Interrupted" }

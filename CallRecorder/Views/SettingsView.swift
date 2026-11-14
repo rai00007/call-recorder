@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var loginError = ""
     @State private var ollamaResult = ""
     @State private var importResult = ""
+    @State private var promptMessage = ""
     private let languages = ["en-US", "en-GB", "en-AU", "en-IN", "es-ES", "fr-FR", "de-DE", "it-IT", "pt-BR", "ja-JP", "ko-KR", "zh-CN"]
 
     var body: some View {
@@ -30,6 +31,20 @@ struct SettingsView: View {
                     Text(importResult).font(.caption)
                 }
                 Toggle("Ask me about deleting raw mic/system tracks after processing", isOn: Binding(get: { s.askAboutRawTracks }, set: { s.askAboutRawTracks = $0 }))
+            }
+            Section("Apple Calendar meeting prompts") {
+                Toggle("Apple Calendar meeting prompts", isOn: Binding(get: { s.meetingPromptsEnabled }, set: { on in
+                    Task { promptMessage = await state.setMeetingPrompts(on) ?? "" }
+                }))
+                Text("Call Recorder reads event titles, times, attendees and join links from Apple Calendar (all calendars, including Google and Microsoft calendars synced there) to remind you two minutes before a meeting. It is read-only, nothing is changed in your calendar and nothing leaves this Mac. Recording only starts when you choose Join & Record or Record Only.")
+                    .font(.caption).foregroundStyle(.secondary)
+                LabeledContent("Calendar access", value: calendarText)
+                LabeledContent("Notifications", value: state.notifier.statusText)
+                if !promptMessage.isEmpty { Text(promptMessage).font(.caption).foregroundStyle(.orange) }
+                HStack {
+                    Button("Open Calendar settings") { open("Privacy_Calendars") }
+                    Button("Open Notification settings") { NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension")!) }
+                }
             }
             Section("Transcription") {
                 Picker("Language", selection: Binding(get: { s.language }, set: { s.language = $0 })) {
@@ -69,9 +84,12 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
-        .formStyle(.grouped).frame(width: 560, height: 620)
+        .formStyle(.grouped).frame(width: 560, height: 780).optaraWindow()
     }
 
+    private var calendarText: String {
+        switch state.prompts.access { case .granted: "Full access"; case .denied: "Denied"; case .restricted: "Restricted"; case .writeOnly: "Write-only (full access needed)"; case .notDetermined: "Not asked yet" }
+    }
     private var micText: String {
         switch Permissions.micStatus { case .authorized: "Granted"; case .denied: "Denied"; case .restricted: "Restricted"; default: "Not asked yet" }
     }

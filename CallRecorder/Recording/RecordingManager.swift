@@ -22,6 +22,8 @@ final class RecordingManager: ObservableObject {
     @Published private(set) var micStatus: SourceStatus = .off
     @Published private(set) var systemStatus: SourceStatus = .off
     @Published private(set) var droppedBuffers = 0
+    @Published private(set) var level: Float = 0
+    @Published private(set) var currentRecordingID: UUID?
     private(set) var processingTask: Task<Void, Never>?
 
     let store: RecordingStore, pipeline: ProcessingPipeline, settings: AppSettings
@@ -41,18 +43,18 @@ final class RecordingManager: ObservableObject {
         self.factory = factory; self.permissionCheck = permissionCheck; self.mixer = mixer
     }
 
-    func start() async {
+    func start(meeting: MeetingLink? = nil) async {
         guard state.canStart else { return }
         state = .starting
         if let problem = await permissionCheck() { state = .failed(problem); return }
         var created: UUID?
         do {
-            let m = try store.create(language: settings.language)
+            let m = try store.create(language: settings.language, meeting: meeting)
             created = m.id
             let s = try factory(store.url(m.id, .system), store.url(m.id, .mic))
             s.onError = { [weak self] e in Task { @MainActor in await self?.streamFailed(e) } }
             try await s.start()
-            session = s; currentID = m.id; startedAt = Date(); elapsed = 0; droppedBuffers = 0
+            session = s; currentID = m.id; currentRecordingID = m.id; startedAt = Date(); elapsed = 0; droppedBuffers = 0
             micStatus = .waiting; systemStatus = .waiting
             state = .recording
             timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
@@ -78,6 +80,7 @@ final class RecordingManager: ObservableObject {
         guard let s = session, let t = startedAt else { return }
         elapsed = Date().timeIntervalSince(t)
         droppedBuffers = s.droppedBuffers
+        level = max(s.level, level * 0.7)   // fast attack, smooth decay
         micStatus = s.micActive ? .active : (elapsed > 5 ? .silent : .waiting)
         systemStatus = s.systemActive ? .active : (elapsed > 5 ? .silent : .waiting)
     }
@@ -88,7 +91,7 @@ final class RecordingManager: ObservableObject {
         timer?.invalidate(); timer = nil
         let wall = Date().timeIntervalSince(startedAt ?? Date())
         await s.stop()
-        session = nil; currentID = nil
+        session = nil; currentID = nil; currentRecordingID = nil; level = 0
         micStatus = .off; systemStatus = .off
         state = .processing
         let dropped = s.droppedBuffers
