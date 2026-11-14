@@ -9,6 +9,7 @@ final class AppSettings: ObservableObject {
     @Published var ollamaModel: String { didSet { d.set(ollamaModel, forKey: "ollamaModel") } }
     @Published var autoSummarize: Bool { didSet { d.set(autoSummarize, forKey: "autoSummarize") } }
     @Published var consentAcknowledged: Bool { didSet { d.set(consentAcknowledged, forKey: "consent") } }
+    @Published var meetingPromptsEnabled: Bool { didSet { d.set(meetingPromptsEnabled, forKey: "meetingPrompts") } }
     @Published var askAboutRawTracks: Bool { didSet { d.set(askAboutRawTracks, forKey: "askRaw") } }
 
     static var defaultRoot: URL {
@@ -26,6 +27,7 @@ final class AppSettings: ObservableObject {
         autoSummarize = defaults.object(forKey: "autoSummarize") as? Bool ?? true
         consentAcknowledged = defaults.bool(forKey: "consent")
         askAboutRawTracks = defaults.bool(forKey: "askRaw")
+        meetingPromptsEnabled = defaults.bool(forKey: "meetingPrompts")
     }
 
     var storageURL: URL { storagePath.isEmpty ? Self.defaultRoot : URL(fileURLWithPath: storagePath) }

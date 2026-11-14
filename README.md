@@ -29,6 +29,8 @@ for people who want their meeting audio to stay on their own machine.
 - **Editable action items** — extracted from the minutes (owner/due date only when stated), editable, exportable. Transcript edits are saved separately from the original.
 - **Retry independently** — re-run transcription or summarization without recording again; Ollama is optional.
 - **Safe by default** — raw mic/system tracks are never deleted automatically; per-recording and bulk cleanup is up to you (Manage storage). Deletes go to the Trash.
+- **Apple Calendar meeting prompts (optional)** — enable in Settings to get a prompt two minutes before calendar meetings that have a Meet/Zoom/Teams (or other http/https) join link: **Join & Record**, **Record Only** or **Dismiss**. Read-only EventKit access; nothing records until you choose. Recordings keep a snapshot of the meeting (title, time, calendar, invitees, link).
+- **Meeting notes** — an autosaving Notes tab per recording or meeting, stored separately from the generated minutes (regenerating never touches them) and available even when transcription fails or nothing was recorded.
 - **No dependencies, no Xcode project** — plain Swift sources in `CallRecorder/`, built with `swiftc` via `./build.sh`.
 
 ## Quick start
@@ -60,6 +62,7 @@ Without Ollama you still get the audio and transcript.
 
 On the first recording macOS asks for **Screen & System Audio Recording** (needed to capture the other side of the call)
 and **Microphone**. If you miss the prompt, enable *Call Recorder* in System Settings → Privacy & Security.
+Meeting prompts additionally ask for **Calendars** (full access, read-only) and **Notifications**; if notifications are denied the prompt appears in a small Call Recorder window instead.
 
 `build.sh` signs with your first code-signing identity (or `CODESIGN_IDENTITY`) so permissions survive rebuilds.
 With only an ad-hoc signature macOS invalidates them on every build — re-grant after each rebuild in that case.
@@ -73,7 +76,9 @@ With only an ad-hoc signature macOS invalidates them on every build — re-grant
   transcript.txt           # original: [mm:ss] Me: / Others: ...
   transcript.edited.txt    # only if you edit the transcript
   minutes.md               # meeting minutes (needs Ollama)
-  metadata.json            # title, status, action items
+  metadata.json            # title, status, action items, meeting snapshot (if any)
+  notes.md                 # your notes (standalone recordings)
+<root>/Meetings/<id>/      # meeting.json (frozen snapshot) + notes.md shared by that meeting's recordings
 ```
 
 Example minutes:
@@ -104,6 +109,8 @@ No analytics or telemetry; no account. Recordings live outside the repo; `record
 Tell people you're recording. You are responsible for complying with the law.
 
 ## Limitations
+
+- Meeting prompts: only http/https join links are recognised; invitees come from the calendar and are not verified participants; a prompt is shown once per event occurrence (a missed notification banner is not repeated — start from the sidebar's Upcoming meetings instead); rescheduling a non-recurring event can prompt again; notes aren't searched or fed to the summary.
 
 - Use headphones: with speakers your mic also hears the other side, so their lines can appear twice (as "Me" too).
 - "Others" is one label — individual remote participants aren't told apart.

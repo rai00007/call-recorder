@@ -6,7 +6,7 @@ let package = Package(
     name: "CallRecorder",
     platforms: [.macOS("26.0")],
     targets: [
-        .target(name: "CallRecorderCore", path: "CallRecorder", exclude: ["App", "Views", "MenuBar"]),
+        .target(name: "CallRecorderCore", path: "CallRecorder", exclude: ["App", "Views", "MenuBar", "Prompts"]),
         .testTarget(name: "CallRecorderTests", dependencies: ["CallRecorderCore"], path: "Tests/CallRecorderTests"),
     ],
     swiftLanguageModes: [.v5]

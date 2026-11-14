@@ -8,32 +8,56 @@ func copyToPasteboard(_ s: String) { NSPasteboard.general.clearContents(); NSPas
     if p.runModal() == .OK, let u = p.url { try? Exporter.write(text, to: u) }
 }
 
+enum DetailTab: String, CaseIterable, Identifiable {
+    case notes = "Notes", summary = "Summary", transcript = "Transcript", audio = "Audio", actions = "Actions"
+    var id: String { rawValue }
+}
+
 struct RecordingDetailView: View {
     @EnvironmentObject var state: AppState
     let id: UUID
     @State private var title = ""
+    @State private var tab: DetailTab?
 
     var body: some View {
         if let m = state.store.meta(id) {
-            VStack(alignment: .leading, spacing: 8) {
+            let current = tab ?? (m.phase == .recording ? .notes : .summary)   // notes first while recording
+            VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     TextField("Title", text: $title).textFieldStyle(.plain).font(.title2.bold())
                         .onSubmit { state.store.rename(id, to: title) }
-                    Text(m.statusLabel).foregroundStyle(.secondary)
+                    Text(m.statusLabel).font(.caption).foregroundStyle(Theme.secondary)
                 }
+                if let s = m.meeting?.snapshot { MeetingHeader(snapshot: s) }
                 Text(m.createdAt.formatted(date: .complete, time: .shortened) + " · " + formatDuration(m.duration))
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption).foregroundStyle(Theme.secondary)
                 if let n = m.note { Label(n, systemImage: "info.circle").font(.caption).foregroundStyle(.orange) }
-                TabView {
-                    SummaryTab(m: m).tabItem { Label("Summary", systemImage: "doc.text") }
-                    TranscriptTab(m: m).tabItem { Label("Transcript", systemImage: "text.bubble") }
-                    AudioTab(m: m).tabItem { Label("Audio", systemImage: "waveform") }
-                    ActionsTab(m: m).tabItem { Label("Actions", systemImage: "checklist") }
+                HStack(spacing: 4) {
+                    ForEach(DetailTab.allCases) { t in
+                        Button { tab = t } label: {
+                            Text(t.rawValue).font(.callout.weight(current == t ? .semibold : .regular))
+                                .foregroundStyle(current == t ? Theme.accent : Theme.secondary)
+                                .padding(.horizontal, 10).padding(.vertical, 5)
+                                .overlay(alignment: .bottom) { Rectangle().fill(current == t ? Theme.accent : .clear).frame(height: 2) }
+                        }
+                        .buttonStyle(.plain).accessibilityAddTraits(current == t ? .isSelected : [])
+                    }
+                    Spacer()
                 }
+                .overlay(alignment: .bottom) { Rectangle().fill(Theme.border).frame(height: 1) }
+                Group {
+                    switch current {
+                    case .notes: NotesEditor(url: state.store.notesURL(id), exportName: m.title).id(state.store.notesURL(id))
+                    case .summary: SummaryTab(m: m)
+                    case .transcript: TranscriptTab(m: m)
+                    case .audio: AudioTab(m: m)
+                    case .actions: ActionsTab(m: m)
+                    }
+                }.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
-            .padding()
+            .padding(16)
             .onAppear { title = m.title }
-        } else { Text("Recording not found").foregroundStyle(.secondary) }
+        } else { Text("Recording not found").foregroundStyle(Theme.secondary) }
     }
 }
 
@@ -62,17 +86,21 @@ private struct SummaryTab: View {
                 StepBanner(status: m.summary, running: "Writing minutes…", retry: ("Retry summary", { Task { await state.pipeline.summarize(m.id) } }))
                 Spacer()
                 if m.summary != .running {
-                    Button(md.isEmpty ? "Generate summary" : "Regenerate") { Task { await state.pipeline.summarize(m.id) } }
+                    iconButton(md.isEmpty ? "Generate summary" : "Regenerate", "arrow.clockwise") { Task { await state.pipeline.summarize(m.id) } }
                         .disabled(m.transcript != .done)
                 }
-                Button("Copy") { copyToPasteboard(md) }.disabled(md.isEmpty)
-                Button("Export…") { exportFile(name: m.title + " minutes.md", text: md) }.disabled(md.isEmpty)
+                iconButton("Copy", "doc.on.doc") { copyToPasteboard(md) }.disabled(md.isEmpty)
+                iconButton("Export…", "square.and.arrow.up") { exportFile(name: m.title + " minutes.md", text: md) }.disabled(md.isEmpty)
             }
             ScrollView {
-                Text(md.isEmpty ? "No minutes yet. Minutes need a transcript and a running Ollama (optional)." : md)
-                    .textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                if md.isEmpty { Text("No minutes yet. Minutes need a transcript and a running Ollama (optional).").foregroundStyle(Theme.secondary).frame(maxWidth: .infinity, alignment: .leading) }
+                else { MarkdownView(markdown: md).padding(.vertical, 4) }
             }
         }
+    }
+    private func iconButton(_ label: String, _ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Label(label, systemImage: icon).labelStyle(.iconOnly) }
+            .buttonStyle(SecondaryButtonStyle()).help(label).accessibilityLabel(label)
     }
 }
 
